@@ -15,6 +15,9 @@ Focused reference notes on LLM internals, training techniques, and inference opt
 - [Distilling AI Models](./Distill_AI_Model.md)
 - [Key Attributes of LLMs](./Key_Attributes_of_LLMs.md)
 
+## Memory & retrieval
+- [Understanding AI Memory](./Understanding_AI_Memory.md)
+
 ## Foundations & tooling
 - [Activation Functions](./Activation_Function.md)
 - [Approximation Functions](./Approximation_Functions.md)
