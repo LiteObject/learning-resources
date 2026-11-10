@@ -20,7 +20,7 @@ Notes, guides, and hands-on exercises for **software architecture** and **AI/ML*
 | [`ai/explained-simply/`](./ai/explained-simply/) | Plain-English introduction to AI/ML (no coding required) | Complete beginners, business professionals |
 | [`ai/ml-curriculum/`](./ai/ml-curriculum/) | Structured ML curriculum: fundamentals → learning types → models & algorithms → advanced topics → deployment → AI types | Self-directed learners who want a full path |
 | [`ai/engineering-notebook/`](./ai/engineering-notebook/) | AI **product engineering**: problem framing, data strategy, architecture, ethics, UX, cost — plus an interactive Jupyter notebook | Software engineers building AI systems |
-| [`ai/llm-deep-dives/`](./ai/llm-deep-dives/) | Focused technical notes: attention, Flash Attention, LoRA, sampling, entropy, inference optimization | Practitioners needing quick, technical refreshers |
+| [`ai/llm-deep-dives/`](./ai/llm-deep-dives/) | Focused technical notes: attention, Flash Attention, LoRA & PEFT, sampling, entropy, inference optimization, HNSW/vector search | Practitioners needing quick, technical refreshers |
 | [`ai/exercises/`](./ai/exercises/) | Hands-on practice: scikit-learn notebooks, sample exams, datasets | Anyone learning by doing |
 
 ## Suggested reading orders

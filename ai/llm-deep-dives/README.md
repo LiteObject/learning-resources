@@ -12,11 +12,13 @@ Focused reference notes on LLM internals, training techniques, and inference opt
 - [The Attention Mechanism](./Attention_Mechanism.md)
 - [Attention Mechanism in LLMs](./attention-mechanism-in-llms.md)
 - [Introduction to LoRA](./Introduction_LoRA.md)
+- [A Simple Guide to PEFT](./peft-parameter-efficient-fine-tuning.md) — parameter-efficient fine-tuning: LoRA, adapters, prompt tuning
 - [Distilling AI Models](./Distill_AI_Model.md)
 - [Key Attributes of LLMs](./Key_Attributes_of_LLMs.md)
 
 ## Memory & retrieval
 - [Understanding AI Memory](./Understanding_AI_Memory.md)
+- [A Simple Guide to HNSW](./hnsw.md) — the graph index behind vector search
 
 ## Foundations & tooling
 - [Activation Functions](./Activation_Function.md)

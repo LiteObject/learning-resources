@@ -101,7 +101,7 @@ A vector database is optional. Semantic memory ≠ semantic search.
 | --- | --- |
 | **Files / JSON** | Notes, profiles, exact lookups |
 | **SQL / filters** | Structured facts, dates, scope |
-| **Vector search** | Candidates by embedding similarity |
+| **Vector search** | Candidates by embedding similarity — see [A Simple Guide to HNSW](./hnsw.md) for the index behind it |
 | **Graphs** | Entities and relationships |
 
 > Combine methods when useful. Similarity is not a truth or freshness score.
