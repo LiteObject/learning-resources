@@ -1,617 +1,606 @@
-# LLMs Explained — Complete Practical Guide
+# LLMs Explained: A Practical Guide for Engineers
 
-## 1. What Is an LLM?
-
-A **Large Language Model (LLM)** is an AI model trained on very large amounts of data to understand and generate language. It learns statistical patterns in sequences of tokens and uses those patterns to predict what token is likely to come next.
-
-Examples of LLM-powered products include chat assistants, coding assistants, document summarizers, translation tools, and customer-support bots.
-
-**Simple analogy:** Imagine an extremely advanced autocomplete system. It has learned patterns from enormous collections of text and code. Given a prompt, it generates a continuation one token at a time. Modern LLMs can perform many useful tasks because the patterns they learn encode grammar, facts, styles, relationships, and problem-solving procedures.
-
-An LLM is not a database that looks up a guaranteed correct answer. It generates outputs from learned patterns and the context it receives. Fluent output can still be incorrect.
+> Rewritten and extended from [LiteObject/learning-resources – LLMs Explained](https://github.com/LiteObject/learning-resources/blob/main/ai/llms_explained_complete_practical_guide.md).
+> **What's new in this version:** top-k explained alongside top-p (with runnable code), a full section on parameter-efficient fine-tuning (LoRA, QLoRA), a deeper quantization section (what gets quantized, memory math, quality trade-offs), a corrected picture of epochs in LLM pre-training, and runnable API examples instead of pseudocode.
 
 ---
 
-## 2. What Does "Large" Mean?
+## Contents
 
-The word *large* can refer to several dimensions:
+1. [What an LLM is](#1-what-an-llm-is)
+2. [What "large" means](#2-what-large-means)
+3. [Tokens](#3-tokens)
+4. [How text gets generated](#4-how-text-gets-generated)
+5. [The Transformer and attention](#5-the-transformer-and-attention)
+6. [How LLMs are trained](#6-how-llms-are-trained)
+7. [Training vocabulary](#7-training-vocabulary)
+8. [Fine-tuning in practice: LoRA, QLoRA and other PEFT methods](#8-fine-tuning-in-practice-lora-qlora-and-other-peft-methods)
+9. [Prompting vs. RAG vs. fine-tuning](#9-prompting-vs-rag-vs-fine-tuning)
+10. [Inference and decoding: temperature, top-k, top-p](#10-inference-and-decoding-temperature-top-k-top-p)
+11. [Quantization](#11-quantization)
+12. [Context windows and memory](#12-context-windows-and-memory)
+13. [Hallucinations](#13-hallucinations)
+14. [LLMs vs. traditional ML](#14-llms-vs-traditional-ml)
+15. [Model types](#15-model-types)
+16. [Building LLM applications](#16-building-llm-applications)
+17. [Evaluation](#17-evaluation)
+18. [Risks and controls](#18-risks-and-controls)
+19. [The ecosystem](#19-the-ecosystem)
+20. [Calling an LLM from code](#20-calling-an-llm-from-code)
+21. [Learning roadmap](#21-learning-roadmap)
+22. [Interview questions](#22-interview-questions)
+23. [Exercises](#23-exercises)
+24. [Cheat sheet](#24-cheat-sheet)
+
+---
+
+## 1. What an LLM is
+
+A large language model (LLM) is a neural network trained on very large amounts of text (and often code) to model language. Mechanically, it does one thing: given a sequence of tokens, it outputs a probability distribution over what token comes next. Everything else — chat, summarization, code generation, translation — is built by repeating that step.
+
+A useful mental model is "extremely capable autocomplete." It is a weak mental model in one important way: an LLM is **not a database**. It doesn't look up a stored, verified answer. It generates text that is statistically plausible given its training and the context you give it. Fluent output can still be wrong.
+
+## 2. What "large" means
+
+"Large" refers to several things at once:
 
 | Dimension | Meaning |
-| :--- | :--- |
-| **Parameters** | Learnable numerical values inside the model |
-| **Training data** | Text, code, and other data used during training |
-| **Compute** | Hardware and processing used to train and serve it |
-| **Context window** | Amount of tokenized information the model can process in one request |
+|---|---|
+| Parameters | The learned numerical weights inside the model (billions in modern LLMs). |
+| Training data | Trillions of tokens of text and code for frontier-scale models. |
+| Compute | The GPU/TPU time needed to train, measured in FLOPs. |
+| Context window | How many tokens the model can consider in a single request. |
 
-A model with more parameters is not automatically better at every task. Data quality, architecture, training methods, inference setup, and evaluation all matter.
+More parameters do not automatically mean a better model. Data quality, architecture, training recipe, alignment and the inference setup all matter. A well-trained smaller model regularly beats a poorly trained larger one.
 
-### What are parameters?
+Parameters are not a table of facts. Knowledge is distributed across them in ways that aren't directly readable or editable.
 
-Parameters are numerical values learned during training. They are adjusted so the model becomes better at predicting training targets.
+## 3. Tokens
 
-Think of parameters as the model's learned internal settings. They are not individual facts stored in neat rows, and users normally do not edit them directly.
+Models don't see characters or words; they see **tokens** — chunks produced by a tokenizer. A token may be a whole word, part of a word, punctuation, whitespace or a symbol.
 
----
-
-## 3. Tokens — How LLMs Read Text
-
-LLMs generally do not process text as whole words. Text is converted into **tokens**: units that may represent a word, part of a word, punctuation, whitespace, or other symbols.
-
-### Example (illustrative only):
-
-```text
-Input: "Data analytics is powerful!"
-
-Possible token pieces:
-["Data", " analytics", " is", " powerful", "!"]
+```
+raw text → tokenizer → token IDs → model → output token IDs → detokenizer → text
 ```
 
-The exact tokenization depends on the model's tokenizer. A word may be one token or several tokens.
+For example, `"Data analytics is powerful!"` might split into `["Data", " analytics", " is", " powerful", "!"]`, but the exact split depends on the tokenizer, and different model families use different ones.
 
-### Why tokens matter
+Why tokens matter in practice:
 
-* **Context windows** are measured in tokens, not pages or words.
-* **API usage and pricing** are often calculated using input and output tokens.
-* **Long prompts** consume more context and may increase latency and cost.
-* **Code, numbers, unusual names, and multilingual text** can tokenize differently from ordinary English.
+- **Context limits** are measured in tokens, not words or pages.
+- **API pricing** is usually per input token and per output token (output often costs more).
+- **Latency** grows with prompt length and, especially, output length.
+- **Code, numbers, rare names and non-English text** often use more tokens per word than ordinary English. A common rule of thumb for English prose is roughly ¾ of a word per token, but treat it as a rough estimate only.
 
-### Tokenization flow
+## 4. How text gets generated
 
-```text
-Raw text
-  ↓
-Tokenizer
-  ↓
-Token IDs (numbers)
-  ↓
-Model processes token IDs
-  ↓
-Output token IDs
-  ↓
-Tokenizer decodes them
-  ↓
-Readable text
+Most widely used LLMs are **decoder-only Transformers** that generate **autoregressively**: one token at a time, each conditioned on everything before it.
+
+1. **Prompt** — system instructions, conversation history, retrieved documents and user input.
+2. **Tokenize** — convert to token IDs.
+3. **Embed** — map each ID to a vector, plus positional information.
+4. **Transformer layers** — repeated attention and feed-forward blocks refine those vectors.
+5. **Logits** — the final layer produces a score for every token in the vocabulary.
+6. **Decode** — turn scores into probabilities and choose one token (see [Section 10](#10-inference-and-decoding-temperature-top-k-top-p)).
+7. **Append and repeat** — the chosen token is added to the sequence and the loop runs again.
+8. **Stop** — at an end-of-sequence token, a stop sequence, or the max output limit.
+
+To avoid recomputing everything each step, inference engines keep a **KV cache** — the attention keys and values for tokens already processed. The KV cache is a big reason long contexts consume so much GPU memory.
+
+## 5. The Transformer and attention
+
+The Transformer was introduced in the 2017 paper *Attention Is All You Need* (Vaswani et al.). Its core idea is **self-attention**: every token builds a context-aware representation by weighing every other token it is allowed to see.
+
+Example: in "I went to the bank to deposit a check," attention lets the representation of *bank* be shaped by *deposit* and *check*, pushing it toward the financial meaning. (Attention patterns are learned numbers, not human-readable rules — this example is only an intuition.)
+
+**Queries, keys and values.** Each token's vector is projected three ways using learned weight matrices:
+
+| Projection | Intuition |
+|---|---|
+| Query (Q) | "What am I looking for?" |
+| Key (K) | "What do I contain?" |
+| Value (V) | "What information do I pass along if selected?" |
+
+**Scaled dot-product attention:**
+
+```
+Attention(Q, K, V) = softmax( Q·Kᵀ / √d_k ) · V
 ```
 
----
+- `Q·Kᵀ` scores how relevant each token is to each other token.
+- Dividing by `√d_k` (the key dimension) keeps scores from growing too large, which would push softmax into near-one-hot outputs with tiny gradients.
+- `softmax` turns scores into weights that sum to 1.
+- The weights take a weighted average of the value vectors.
+- In decoder-only models a **causal mask** stops each token from attending to tokens after it.
 
-## 4. How an LLM Generates an Answer
+**Multi-head attention** runs several attention operations in parallel, each with its own projections, so different heads can specialize (syntax, coreference, position, and so on). Their outputs are concatenated and projected back.
 
-Most widely used modern LLMs are based on the **Transformer** architecture. Many generative chat models use a decoder-only Transformer, although not every language model has the same architecture.
+**The rest of the block.** Each layer also has a feed-forward network, residual connections and normalization, which together make deep stacks trainable.
 
-### Simplified generation flow:
+**Position.** Attention by itself has no sense of word order, so models add positional information — learned or sinusoidal embeddings in early models, rotary position embeddings (RoPE) and similar methods in most current ones.
 
-1. **Prompt:** The user provides instructions, questions, or data.
-2. **Tokenization:** The text is converted into token IDs.
-3. **Embeddings:** Token IDs are mapped to numerical vectors.
-4. **Transformer layers:** The model processes contextual relationships using attention and feed-forward computations.
-5. **Logits and probabilities:** The model produces scores for possible next tokens, which can be converted into probabilities.
-6. **Decoding:** A token is selected according to the decoding strategy.
-7. **Repeat:** The selected token is added to the context and the model predicts again.
-8. **Stop:** Generation ends when a stop condition or output limit is reached.
+## 6. How LLMs are trained
 
-```text
-Prompt
-  ↓
-Tokenization
-  ↓
-Token embeddings + positional information
-  ↓
-Transformer blocks
-  ↓
-Scores for next token
-  ↓
-Select next token
-  ↓
-Append token and repeat
-  ↓
-Final response
+Training means adjusting parameters to reduce a loss. Modern chat models typically go through three broad stages, though recipes vary by provider.
+
+### Stage 1: Pre-training
+
+The model learns general language and world patterns from a huge corpus. For decoder-only models the objective is **next-token prediction**:
+
+```
+context: "The capital of France is"   →   target: " Paris"
 ```
 
-The model typically generates a sequence incrementally. It does not retrieve a fully written answer from a hidden answer bank.
+The loss (cross-entropy) measures how much probability the model gave the correct next token; an optimizer nudges the parameters to raise it. This is the expensive stage — by far the most compute.
 
----
+Other architectures use other objectives (for example, masked-token prediction for encoder models like BERT), so next-token prediction is common but not universal.
 
-## 5. Transformer Architecture — The Core Engine
+**How many epochs?** Classic ML often trains for many epochs. LLM pre-training usually doesn't: frontier models typically see their corpus about once, or less, with higher-quality sources (curated web, code, books) upsampled so they appear a few times. Repeating the whole corpus many times wastes compute and encourages memorization. For a sense of scale, the "Chinchilla" study (Hoffmann et al., 2022) found compute-optimal training at roughly 20 tokens per parameter; many current models are deliberately trained well beyond that to make them cheaper to serve.
 
-The Transformer architecture was introduced in the 2017 research paper *Attention Is All You Need*. Its key innovation was the attention mechanism, which helps a model use relationships between tokens when processing a sequence.
+### Stage 2: Supervised fine-tuning (SFT)
 
-### Self-attention
+The model is trained on curated prompt/response pairs so it follows instructions and answers in a useful format.
 
-Self-attention lets each token build a contextual representation by weighing information from other relevant tokens in the sequence.
-
-**Example:**
-
-```text
-"The bank approved the loan because it was eligible."
+```
+prompt:   "Explain a SQL LEFT JOIN to a beginner."
+response: "A LEFT JOIN returns every row from the left table, plus matching rows from the right table..."
 ```
 
-To interpret "it", a model must use surrounding context. Attention helps represent relationships between tokens; it is not simply a human-readable rule that identifies the correct reference.
+SFT datasets are tiny compared with pre-training data and typically run for 1–3 epochs.
 
-### Query, Key, and Value
+### Stage 3: Preference alignment
 
-Attention uses three learned projections:
+The model is tuned toward responses people (or a trained judge) prefer — more helpful, honest and safe. Common approaches:
 
-| Component | Intuition |
-| :--- | :--- |
-| **Query ($Q$)** | What information is this token looking for? |
-| **Key ($K$)** | What information does each token offer for matching? |
-| **Value ($V$)** | What information is passed along if a token is attended to? |
+- **RLHF** — collect human rankings of candidate responses, train a reward model on them, then optimize the LLM against the reward model with reinforcement learning (classically PPO).
+- **DPO** (Direct Preference Optimization, 2023) and related methods — skip the separate reward model and train directly on preferred/rejected pairs. Simpler and widely used.
+- **AI feedback** — preferences or critiques generated by a model following written principles, used alongside or instead of human labels.
 
-A simplified scaled dot-product attention formula:
+Many recent models also add reinforcement learning on tasks with checkable answers (math, code with tests) to strengthen step-by-step reasoning.
 
-$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
-
-* $QK^T$ calculates compatibility scores.
-* Dividing by $\sqrt{d_k}$ stabilizes the scale.
-* Softmax converts scores into weights.
-* The weights combine the Value vectors.
-
-### Multi-head attention
-
-Instead of using only one attention operation, a Transformer can use multiple attention heads. Different heads can learn different relationships or patterns. Their outputs are combined and transformed.
-
-### Feed-forward layers and residual connections
-
-Transformer blocks also include feed-forward neural network layers, residual connections, and normalization. These help transform representations and support stable deep networks.
-
-### Positional information
-
-Because attention alone does not inherently encode token order, Transformer designs include positional information through positional embeddings, rotary position methods, or other approaches.
-
----
-
-## 6. How LLMs Are Trained
-
-Training is a process of adjusting model parameters so the model performs better on a learning objective.
-
-### Stage 1 — Pre-training
-
-The model learns broad patterns from large datasets. A common objective for autoregressive language models is **next-token prediction**.
-
-**Example:**
-
-```text
-Context: "The capital of France is"
-Target:  "Paris"
-```
-
-The model predicts a distribution over possible next tokens. A loss function measures how well the prediction matches the target. Optimization algorithms update model parameters to reduce the loss over many training examples.
-
-*Important:* Next-token prediction is a common objective for decoder-only generative LLMs, not a universal description of every language model.
-
-### Stage 2 — Supervised Fine-Tuning (SFT)
-
-A pre-trained model can be further trained on curated examples of prompts and desired responses. This helps it follow instructions and produce useful response formats.
-
-**Example training pair:**
-
-```text
-Prompt: Explain a SQL LEFT JOIN to a beginner.
-Target: A LEFT JOIN returns all rows from the left table...
-```
-
-### Stage 3 — Preference alignment
-
-Models can be further optimized to better match human or other preference signals. Methods include preference-based training and reinforcement-learning approaches.
-
-**Simplified human-feedback loop:**
-
-1. Generate multiple candidate responses.
-2. Collect rankings or preference labels.
-3. Train a reward or preference model, or optimize directly using preference data.
-4. Further train or optimize the assistant model.
-5. Evaluate safety, usefulness, and reliability.
-
-Not every model uses the same pipeline. Alignment methods vary across providers and model families.
-
----
-
-## 7. Important LLM Training Terms
+## 7. Training vocabulary
 
 | Term | Meaning |
-| :--- | :--- |
-| **Dataset** | Examples used for training or evaluation |
-| **Epoch** | One complete pass through a training dataset |
-| **Batch** | Examples processed together in one training step |
-| **Learning rate** | Controls the size of parameter updates |
-| **Loss** | Numerical measure of prediction error |
-| **Gradient descent** | Optimization approach for reducing loss |
-| **Backpropagation** | Computes gradients through the network |
-| **Fine-tuning** | Further training an existing model for a task or behaviour |
-| **Overfitting** | Model adapts too closely to training examples and generalizes poorly |
-| **Inference** | Using a trained model to generate predictions or responses |
+|---|---|
+| Epoch | One full pass over the training dataset. (LLM pre-training often runs for ~1 epoch or less — see Section 6.) |
+| Batch | The examples processed together in one training step. |
+| Learning rate | How big each parameter update is. |
+| Loss | A number measuring prediction error; training tries to reduce it. |
+| Gradient descent | Updating parameters in the direction that reduces loss. Real training uses variants such as AdamW. |
+| Backpropagation | The algorithm that computes the gradient of the loss for every parameter. |
+| Fine-tuning | Further training an existing model for a task, style or behavior. |
+| Overfitting | Fitting the training data so closely that the model performs worse on new data. |
+| Inference | Running a trained model to produce output. |
 
----
+## 8. Fine-tuning in practice: LoRA, QLoRA and other PEFT methods
 
-## 8. Pre-training vs Fine-tuning vs Prompting vs RAG
+**Full fine-tuning** updates every parameter. For a large model that means storing gradients and optimizer state for billions of weights — many times the memory of the model itself — and saving a full new copy of the model for every task. For most teams that is impractical.
 
-These approaches are often confused.
+**Parameter-efficient fine-tuning (PEFT)** freezes the base model and trains only a small number of new parameters. It is how most practical fine-tuning is done today.
 
-| Approach | What changes? | Best suited for |
-| :--- | :--- | :--- |
-| **Pre-training** | Learns broad patterns and representations | Building a foundation model |
-| **Fine-tuning** | Model parameters are further trained | Adapting behaviour, style, or task performance |
-| **Prompting** | Instructions and context supplied at request time | Giving task-specific directions |
-| **RAG** | Relevant external information is retrieved and supplied as context | Answering using private or current knowledge |
+### LoRA (Low-Rank Adaptation)
 
-### Example: A bank's internal policy assistant
+Introduced by Hu et al. (2021). The idea: the change a fine-tune makes to a weight matrix can be approximated by a low-rank matrix.
 
-* **Pre-trained model:** Has general language capability.
-* **Fine-tuning:** Could help enforce a consistent response format or specialized task behaviour when justified by data.
-* **Prompting:** Tells the assistant to answer in simple language and cite policy sections.
-* **RAG:** Retrieves the latest approved policy document relevant to the question.
+For a frozen weight matrix `W` (size d × k), LoRA learns two small matrices:
 
-RAG does not inherently retrain the model. It supplies retrieved information at inference time.
+```
+W' = W + (α / r) · B·A        where  B is d × r,  A is r × k,  r ≪ min(d, k)
+```
 
----
+- `r` (rank) is typically 8–64. `α` is a scaling factor.
+- `B` starts at zero, so training begins from exactly the base model's behavior.
+- LoRA is usually applied to the attention projections (Q, K, V, output) and often the feed-forward layers.
+- **Scale of savings:** for a 4096 × 4096 matrix (~16.8M weights), rank 8 trains only 2 × 4096 × 8 ≈ 65K weights — about 0.4%.
 
-## 9. Inference — What Happens When You Use an LLM?
+Practical benefits:
 
-**Inference** is the process of running a trained model to produce an output.
+- Much less GPU memory, because there are no gradients or optimizer state for the frozen weights.
+- Adapter files are megabytes, not gigabytes. You can keep one base model and swap adapters per task or customer.
+- Adapters can be merged into the base weights for deployment, adding no inference latency.
 
-| Concept | Explanation |
-| :--- | :--- |
-| **Input tokens** | Tokens supplied in the prompt and conversation |
-| **Output tokens** | Tokens generated by the model |
-| **Context window** | Maximum token capacity for the current model request |
-| **Latency** | Time taken to return a response |
-| **Throughput** | Amount of work or tokens processed per unit of time |
-| **Batch inference** | Processing multiple inputs together |
-| **Streaming** | Returning generated output progressively |
-| **Quantization** | Representing model weights with lower numerical precision to reduce memory and sometimes improve speed |
+### QLoRA
 
-### Temperature and decoding
+Dettmers et al. (2023). QLoRA combines LoRA with quantization: the frozen base model is stored in **4-bit** precision (a format called NF4), while the LoRA adapters train in 16-bit. It also uses double quantization and paged optimizers to save more memory. The paper fine-tuned a 65B-parameter model on a single 48 GB GPU with quality close to 16-bit fine-tuning. QLoRA is a common way to fine-tune open-weight models on a single workstation or cloud GPU.
 
-Temperature affects how sharply or broadly the model samples from its next-token probability distribution.
+### Other PEFT methods
 
-* **Lower temperature** generally makes selection more concentrated around high-probability tokens.
-* **Higher temperature** generally increases variation.
-* Temperature does not guarantee factuality or correctness.
-* Some systems use greedy decoding, top-$k$, top-$p$, or other sampling strategies; available controls vary.
+| Method | What is trained |
+|---|---|
+| Adapters | Small bottleneck layers inserted inside each Transformer block. |
+| Prefix / prompt tuning | Learned "virtual token" vectors prepended to the input or to each layer. |
+| DoRA and other LoRA variants | Refinements that split weights into magnitude and direction, or vary rank by layer. |
 
-### Top-$p$ sampling
+### When to fine-tune at all
 
-Top-$p$ sampling selects from the smallest set of candidate tokens whose cumulative probability reaches a chosen threshold, then samples within that set.
+Fine-tune for **behavior**: a consistent output format, a house style, a narrow classification task, or a smaller model imitating a larger one. Don't fine-tune to add **facts** that change — use retrieval (RAG) instead. Try prompting first; fine-tune when prompting plateaus and you have a few hundred to a few thousand high-quality examples plus an evaluation set to prove the improvement.
 
----
+Tools: Hugging Face `peft` and `trl`, Unsloth, Axolotl, and managed fine-tuning offered by several model providers.
 
-## 10. Context Window and Memory
+## 9. Prompting vs. RAG vs. fine-tuning
 
-The **context window** is the amount of tokenized information a model can consider in a single request. It may include system instructions, conversation history, retrieved documents, user input, and generated output, depending on the system.
+| Approach | What changes | Best for |
+|---|---|---|
+| Prompting | Instructions and examples at request time; no weights change. | Fast iteration, most tasks. |
+| RAG | Relevant documents retrieved and inserted into the prompt; no weights change. | Private, current or frequently changing knowledge; citations. |
+| Fine-tuning (full or PEFT) | Model weights (or adapter weights). | Consistent format/style, specialized behavior, smaller/cheaper models. |
+| Pre-training | Everything, from scratch. | Building a foundation model — rarely the right call for an application team. |
 
-Do not confuse context window with persistent memory.
+Example — a policy assistant:
 
-| Context window | Persistent memory |
-| :--- | :--- |
-| Information available in the current model request | Information stored separately and supplied in future requests |
-| Limited by model capacity | Depends on the product or application |
-| Can include current conversation and documents | Can preserve selected facts or preferences |
-| Does not automatically mean permanent storage | May be updated, controlled, or deleted separately |
+- **Prompting:** "Answer in plain language and cite the policy section."
+- **RAG:** retrieve the latest approved policy text and include it in the prompt.
+- **Fine-tuning:** only if, after prompting and RAG, answers still don't follow the required structure and you have labeled examples.
 
-A long context window does not guarantee that every detail will be used equally well. Relevant information still needs to be organized and retrieved effectively.
+These combine: a fine-tuned model can still use RAG and good prompts.
 
----
+## 10. Inference and decoding: temperature, top-k, top-p
 
-## 11. Hallucinations — Why LLMs Can Be Wrong
-
-A **hallucination** occurs when a model generates content that sounds plausible but is false, unsupported, or invented.
-
-### Common causes include:
-
-* The model lacks the required information.
-* The prompt is ambiguous or incomplete.
-* Training patterns encourage a plausible continuation despite uncertainty.
-* The model is asked for obscure, current, or highly specific facts.
-* Retrieved context is missing, irrelevant, or misleading.
-
-### Example
-
-A model may invent a research paper title, SQL column name, legal clause, or financial statistic if it cannot verify the requested information.
-
-### How to reduce risk
-
-1. Provide trustworthy source material.
-2. Use RAG for answers grounded in a known document collection.
-3. Ask for citations or evidence, then verify them.
-4. Use Python, SQL, or calculators for exact calculations.
-5. Add validation rules and structured output checks.
-6. Ask the model to state when evidence is insufficient.
-7. Keep a human review step for consequential decisions.
-
-No technique completely eliminates hallucinations.
-
----
-
-## 12. LLMs vs Traditional Machine Learning
-
-| Dimension | Traditional ML | LLM |
-| :--- | :--- | :--- |
-| **Typical input** | Structured features, images, or engineered data | Tokenized text, code, and sometimes other modalities |
-| **Typical output** | Class, score, forecast, or cluster | Generated text, code, or structured response |
-| **Training** | Often task-specific | Often broad pre-training followed by adaptation |
-| **Examples** | Fraud scoring, churn prediction | Summarization, question answering, code generation |
-| **Data** | Often labelled task data | Often large-scale pre-training data plus task-specific data |
-| **Evaluation** | Accuracy, precision, recall, RMSE, etc. | Task-specific quality, factuality, safety, latency, and cost |
-
-LLMs are not automatically the right choice for tabular prediction. For many structured business datasets, gradient-boosted trees and other traditional ML models can be more efficient, easier to evaluate, and easier to explain.
-
----
-
-## 13. Types of Language Models and Related Terms
+**Inference** is running the trained model. Useful terms:
 
 | Term | Meaning |
-| :--- | :--- |
-| **LLM** | Large language model |
-| **Foundation model** | Broadly trained model adaptable to many downstream tasks |
-| **GPT-style model** | Generative pre-trained Transformer family or approach |
-| **Encoder-only model** | Often designed for understanding and representation tasks |
-| **Decoder-only model** | Common architecture for autoregressive text generation |
-| **Encoder-decoder model** | Uses an encoder and decoder; useful for sequence-to-sequence tasks |
-| **SLM** | Small language model, usually designed for lower compute or narrower deployment needs |
-| **Multimodal model** | Handles more than one modality, such as text, image, or audio |
-| **Open-weight model** | Model weights are publicly available under a licence; this does not necessarily mean all training data or code is open source |
+|---|---|
+| Input / output tokens | What you send / what the model generates; both are billed and both affect latency. |
+| Latency | Time to first token and time to complete. |
+| Throughput | Tokens or requests served per second. |
+| Streaming | Sending tokens to the user as they are generated. |
+| Batch inference | Processing many requests together, often cheaper, for non-interactive jobs. |
 
-### Encoder, Decoder, and Encoder-Decoder
+### Decoding strategies
 
-| Architecture | Typical strengths | Example use |
-| :--- | :--- | :--- |
-| **Encoder-only** | Understand and represent input | Classification, semantic representations |
-| **Decoder-only** | Generate sequences token by token | Chat and code generation |
-| **Encoder-decoder** | Transform one sequence into another | Translation and summarization |
+At each step the model produces **logits** — one score per vocabulary token. Decoding decides which token to emit.
 
----
+- **Greedy decoding:** always take the highest-probability token. Deterministic, but can be repetitive.
+- **Temperature (T):** divide logits by T before softmax.
+  - T < 1 sharpens the distribution toward the top tokens (more focused, more repeatable).
+  - T > 1 flattens it (more varied, more surprising, more errors).
+  - T = 0 is usually treated as greedy.
+- **Top-k:** keep only the **k** most probable tokens, set all others to zero, renormalize, then sample. With k = 1 this is greedy. The weakness: k is fixed, so it keeps too many tokens when the model is confident and too few when many continuations are reasonable.
+- **Top-p (nucleus sampling):** keep the **smallest set of tokens whose cumulative probability reaches p** (for example 0.9), renormalize, then sample. The candidate set grows or shrinks with the model's confidence, which is why top-p is often preferred over top-k.
+- **Min-p** and others: newer variants, such as keeping tokens whose probability is at least a fraction of the top token's. Available controls differ by provider and engine.
 
-## 14. LLM Applications in Business and Data Analytics
+Typical order: apply temperature, then top-k and/or top-p, then sample. Implementations differ, and some providers recommend adjusting temperature *or* top-p, not both.
 
-### A. Text-to-SQL
-A user asks: *"Show monthly transaction volume for 2026."*
+**None of these settings makes output more factual.** Low temperature makes a model consistently say the same thing — including the same wrong thing.
 
-The LLM can draft a SQL query based on the database schema and the user's request. The query must still be checked for correct joins, filters, date logic, permissions, and business definitions.
+### Runnable demo
 
-### B. Customer feedback analysis
-Input: Thousands of customer comments.
-
-An LLM can help:
-* Categorize complaints.
-* Extract product names and issues.
-* Summarize recurring themes.
-* Draft sentiment explanations.
-* Identify examples for human review.
-
-For reliable measurement, define labels clearly and evaluate model classifications against a human-reviewed sample.
-
-### C. Document extraction
-Extract structured fields from invoices, forms, or policy documents.
-
-Example output:
-```json
-{
-  "invoice_number": "INV-2048",
-  "invoice_date": "2026-04-18",
-  "amount": 12500,
-  "currency": "INR"
-}
-```
-
-The application should validate field types, required values, and source evidence. A syntactically valid JSON response can still contain incorrect values.
-
-### D. Report generation
-An LLM can turn verified metrics into a draft narrative:
-* Revenue increased by 8% month over month.
-* The North region contributed the largest share of growth.
-* Returns increased in one product category and need investigation.
-
-The figures should come from SQL or a trusted analytics layer, not be invented by the LLM.
-
-### E. Knowledge assistants
-A RAG-based assistant can search policy manuals, operating procedures, product documentation, and internal FAQs, then draft an answer with references.
-
----
-
-## 15. Building a Simple LLM Application — Conceptual Architecture
-
-```text
-User
-  ↓
-Application / Chat UI
-  ↓
-Prompt construction + access control
-  ↓
-Optional retrieval from documents or databases
-  ↓
-LLM API or locally hosted model
-  ↓
-Output validation and safety checks
-  ↓
-Response with sources
-  ↓
-Monitoring, feedback, and evaluation
-```
-
-A production system also needs authentication, privacy controls, logging policies, rate limits, cost monitoring, error handling, and human escalation.
-
----
-
-## 16. LLM Evaluation — How Do We Know It Works?
-
-There is no single metric that proves an LLM is good. Evaluation must match the task.
-
-| Evaluation dimension | What to measure |
-| :--- | :--- |
-| **Correctness** | Is the answer factually and logically correct? |
-| **Relevance** | Does it answer the actual question? |
-| **Faithfulness** | Is it supported by the supplied context? |
-| **Instruction following** | Did it obey required format and constraints? |
-| **Safety** | Does it avoid harmful or disallowed output? |
-| **Robustness** | Does it handle varied phrasing and edge cases? |
-| **Latency** | How long does it take? |
-| **Cost** | What is the cost per task or successful answer? |
-
-### Useful evaluation methods
-
-* Human review using a clear rubric.
-* Test sets containing realistic and difficult examples.
-* Exact-match or structured-field checks where appropriate.
-* Retrieval metrics such as Recall@K for RAG retrieval.
-* Pairwise comparisons between candidate models.
-* Regression tests after changing prompts, models, or data.
-* Monitoring real-world failures and user feedback.
-
-### Perplexity
-
-Perplexity is a metric related to how well a language model predicts a text sequence. Lower perplexity generally means the model assigns higher probability to the observed tokens. It does not directly measure usefulness, factuality, safety, or overall chat quality.
-
----
-
-## 17. Risks, Privacy, and Responsible Use
-
-| Risk | Practical control |
-| :--- | :--- |
-| **Hallucinated facts** | Ground answers in sources and verify important claims |
-| **Sensitive data exposure** | Minimize data sent; apply access controls and approved retention policies |
-| **Prompt injection** | Treat retrieved documents and user content as untrusted input; restrict tool permissions |
-| **Bias** | Test across relevant user groups and scenarios |
-| **Insecure code** | Review and test generated code before execution |
-| **Excessive cost** | Limit context, cache where appropriate, and monitor token usage |
-| **Over-reliance** | Keep human review for high-impact decisions |
-
-Never paste confidential customer information, credentials, or regulated data into an unapproved AI service. Follow organizational policies and applicable privacy requirements.
-
----
-
-## 18. Popular LLM Ecosystem — Categories
-
-The ecosystem changes quickly, so compare current versions, licences, benchmarks, pricing, and deployment terms before choosing a model.
-
-| Category | Examples | What they provide |
-| :--- | :--- | :--- |
-| **Model providers** | OpenAI, Anthropic, Google | Hosted model APIs and products |
-| **Open-weight model families** | Llama, Qwen, Mistral | Weights for permitted local or hosted deployment |
-| **Orchestration frameworks** | LangChain, LlamaIndex | Components for connecting models, tools, and data |
-| **Model hubs** | Hugging Face | Model discovery, datasets, and libraries |
-| **Inference tools** | vLLM, Ollama | Serving or running models in different environments |
-| **Evaluation tools** | lm-evaluation-harness, RAGAS | Task and retrieval-augmented system evaluation |
-
-A model's licence and deployment terms matter. "Open weights" does not automatically mean unrestricted commercial use or full transparency about training data.
-
----
-
-## 19. A Practical Learning Roadmap
-
-| Stage | Learn | Mini-project |
-| :--- | :--- | :--- |
-| **1. Foundations** | Tokens, embeddings, Transformers, next-token prediction | Explain an LLM workflow in a diagram |
-| **2. Prompting** | Instructions, examples, output constraints | Build a structured feedback classifier prompt |
-| **3. APIs** | Requests, authentication, JSON, error handling | Create a simple Python text summarizer |
-| **4. Retrieval** | Chunking, embeddings, vector search, RAG | Ask questions over a small PDF collection |
-| **5. Evaluation** | Test sets, factuality, relevance, latency, and cost | Compare two prompts or models |
-| **6. Deployment** | APIs, access control, monitoring, and privacy | Deploy a small internal knowledge assistant |
-
-### Python example — call an LLM API
-
-This is a generic pattern. The exact SDK, endpoint, model name, and response fields depend on the provider.
+Requires only NumPy (`pip install numpy`).
 
 ```python
-# Pseudocode: replace with the SDK for your chosen provider.
-from some_llm_sdk import Client
+import numpy as np
 
-client = Client(api_key="YOUR_API_KEY")
+def sample_next_token(logits, temperature=1.0, top_k=None, top_p=None, rng=None):
+    """Pick one token ID from raw logits using temperature, top-k and top-p."""
+    rng = rng or np.random.default_rng()
+    logits = np.asarray(logits, dtype=np.float64)
 
-response = client.generate(
-    model="YOUR_MODEL_NAME",
-    prompt="Explain a SQL INNER JOIN in simple language."
-)
+    if temperature == 0:                      # greedy decoding
+        return int(np.argmax(logits))
 
-print(response.text)
+    logits = logits / temperature             # 1. temperature
+    probs = np.exp(logits - logits.max())
+    probs /= probs.sum()
+
+    if top_k is not None:                     # 2. top-k: keep the k most likely tokens
+        cutoff = np.sort(probs)[-top_k]
+        probs = np.where(probs >= cutoff, probs, 0.0)
+        probs /= probs.sum()
+
+    if top_p is not None:                     # 3. top-p: smallest set reaching p
+        order = np.argsort(probs)[::-1]
+        cumulative = np.cumsum(probs[order])
+        keep = order[: np.searchsorted(cumulative, top_p) + 1]
+        mask = np.zeros_like(probs)
+        mask[keep] = 1.0
+        probs = probs * mask
+        probs /= probs.sum()
+
+    return int(rng.choice(len(probs), p=probs))
+
+vocab = ["Paris", "Lyon", "the", "a", "France"]
+logits = [5.0, 2.5, 2.0, 1.0, 0.5]
+rng = np.random.default_rng(0)
+for settings in [dict(temperature=0), dict(temperature=1.0),
+                 dict(temperature=1.0, top_k=2), dict(temperature=1.5, top_p=0.9)]:
+    picks = [vocab[sample_next_token(logits, rng=rng, **settings)] for _ in range(1000)]
+    counts = {w: picks.count(w) for w in vocab if picks.count(w)}
+    print(settings, counts)
 ```
 
-Keep API keys in environment variables or a secrets manager. Do not hard-code real credentials in notebooks, scripts, or public repositories.
+Output (1,000 samples each):
 
----
+```
+{'temperature': 0} {'Paris': 1000}
+{'temperature': 1.0} {'Paris': 864, 'Lyon': 69, 'the': 39, 'a': 17, 'France': 11}
+{'temperature': 1.0, 'top_k': 2} {'Paris': 925, 'Lyon': 75}
+{'temperature': 1.5, 'top_p': 0.9} {'Paris': 759, 'Lyon': 144, 'the': 97}
+```
 
-## 20. Interview Questions — Beginner to Advanced
+Notice how top-k = 2 cuts off the long tail completely, while a higher temperature with top-p = 0.9 spreads probability across three candidates.
 
-**Q1. What is an LLM?**  
-A large language model is an AI model trained on large datasets to process and generate language. Many generative LLMs predict the next token repeatedly to produce output.
+## 11. Quantization
 
-**Q2. What is a token?**  
-A token is a unit of text representation used by the model. It can be a whole word, part of a word, punctuation, or another text fragment.
+**Quantization** stores numbers at lower precision to cut memory and, often, speed up inference.
 
-**Q3. What is a parameter?**  
-A learned numerical value inside a model that is adjusted during training.
+### Memory math
 
-**Q4. What is the Transformer architecture?**  
-A neural network architecture built around attention mechanisms and other layers that process relationships between sequence elements.
+Weight memory ≈ parameters × bytes per parameter:
 
-**Q5. What is self-attention?**  
-A mechanism that allows token representations to incorporate information from other relevant tokens in the input sequence.
+| Precision | Bytes / param | 7B model | 70B model |
+|---|---|---|---|
+| FP32 | 4 | ~28 GB | ~280 GB |
+| FP16 / BF16 | 2 | ~14 GB | ~140 GB |
+| INT8 / FP8 | 1 | ~7 GB | ~70 GB |
+| 4-bit | 0.5 | ~3.5 GB | ~35 GB |
 
-**Q6. What is next-token prediction?**  
-A training or generation objective in which the model estimates the next token based on preceding context.
+Add memory for the KV cache (grows with context length and concurrent users) and runtime overhead. Most models are trained and served in BF16/FP16 as the baseline.
 
-**Q7. What is fine-tuning?**  
-Further training an existing model on additional data to adapt its behaviour or task performance.
+### What can be quantized
 
-**Q8. What is RAG?**  
-Retrieval-Augmented Generation retrieves relevant external information and supplies it to an LLM as context for answering.
+- **Weights only** (most common, e.g., "W4A16"): weights stored in 4 or 8 bits, computation done in 16-bit. Saves memory; speeds up generation because decoding is usually limited by memory bandwidth.
+- **Weights and activations** (e.g., "W8A8", FP8): both in low precision so the math itself runs on faster low-precision hardware units. Bigger speedups on supported GPUs, harder to do without losing accuracy.
+- **KV cache:** storing cached keys/values in 8-bit or lower to fit longer contexts or more concurrent requests.
 
-**Q9. What is the context window?**  
-The maximum amount of tokenized information a model can process in a single request.
+### How it's done
 
-**Q10. What is inference?**  
-Using a trained model to generate outputs or predictions.
+- **Post-training quantization (PTQ):** quantize a finished model, often using a small calibration dataset. Common methods/formats: GPTQ, AWQ, bitsandbytes, and GGUF (used by llama.cpp and Ollama).
+- **Quantization-aware training (QAT):** simulate low precision during training so the model learns to tolerate it. Better quality at very low bit widths, but needs training.
 
-**Q11. Why do LLMs hallucinate?**  
-They generate likely continuations rather than guaranteeing that every statement is grounded in verified facts.
+### Quality trade-offs
 
-**Q12. Does a higher parameter count guarantee better results?**  
-No. Data quality, architecture, training, inference, task fit, and evaluation also matter.
+Quantization is lossy. As a rough guide:
 
-**Q13. What is the difference between prompting and fine-tuning?**  
-Prompting supplies instructions at request time; fine-tuning changes model parameters through additional training.
+- **8-bit** is usually close to the original on most benchmarks.
+- **4-bit** is a popular sweet spot for local and cost-sensitive deployment, with a small but measurable quality drop.
+- **Below 4-bit** degrades quickly for most models.
 
-**Q14. What is the difference between RAG and fine-tuning?**  
-RAG supplies retrieved knowledge at inference time; fine-tuning modifies model parameters. RAG is often better for frequently changing source material.
+Losses aren't uniform: math, code, long-context reasoning and non-English tasks often suffer more than general chat, and smaller models tend to be more sensitive than larger ones. **Always evaluate a quantized model on your own task** rather than relying on generic benchmark numbers.
 
-**Q15. When would you not use an LLM?**  
-For deterministic calculations, strict database operations, simple rules, or tasks where a smaller model or traditional ML system is more reliable, cheaper, or easier to validate.
+## 12. Context windows and memory
 
----
+The **context window** is everything the model can consider in one request: system prompt, conversation history, retrieved documents, tool results, the user's message — and the output it is generating.
 
-## 21. Hands-on Exercises
+- It is **not persistent memory.** Once a conversation exceeds the window, older content must be dropped or summarized.
+- **Persistent memory** is a product feature: the application stores facts separately and inserts relevant ones into future prompts. It can be viewed, updated or deleted.
+- A long context window doesn't guarantee the model uses everything well. Retrieval accuracy can drop for information buried in the middle of very long inputs, and long prompts cost more and run slower. Put the most important instructions and evidence where the model will reliably attend to them, and test.
 
-1. Explain the difference between a token and a parameter using an example.
-2. Draw the sequence from user prompt to generated answer.
-3. Explain Query, Key, and Value in self-attention without using equations.
-4. Compare pre-training, fine-tuning, prompting, and RAG.
-5. Write a prompt that extracts invoice number, date, and amount into JSON.
-6. List five validation checks for the extracted invoice fields.
-7. Design a test set of 20 customer complaints for category classification.
-8. Define a rubric to evaluate correctness, relevance, and completeness.
-9. Explain why a longer context window does not guarantee a better answer.
-10. Design a safe text-to-SQL workflow with schema context, read-only access, and query validation.
+## 13. Hallucinations
 
----
+A **hallucination** is output that sounds plausible but is false, unsupported or invented — a fake citation, a non-existent SQL column, a made-up statistic.
 
-## 22. Final Revision Cheatsheet
+Common causes:
 
-| Concept | Remember this |
-| :--- | :--- |
-| **LLM** | Large model trained to process and generate language |
-| **Token** | Unit of text representation |
-| **Parameter** | Learned numerical value |
-| **Embedding** | Vector representation of a token or other input |
-| **Transformer** | Architecture using attention and feed-forward layers |
-| **Self-attention** | Combines contextual information across tokens |
-| **Pre-training** | Broad initial training |
-| **Fine-tuning** | Further parameter training for adaptation |
-| **Prompting** | Instructions and context supplied at request time |
-| **RAG** | Retrieve external knowledge and provide it as context |
-| **Inference** | Running the model to generate an output |
-| **Context window** | Token capacity for a request |
-| **Hallucination** | Plausible but false or unsupported output |
-| **Temperature** | Controls randomness in sampling-based decoding |
-| **Evaluation** | Testing quality, reliability, safety, cost, and latency |
+- The information isn't in the training data or the provided context.
+- The prompt is ambiguous.
+- The model is optimized to produce a plausible continuation, not to say "I don't know."
+- The fact is obscure or newer than the training data.
+- Retrieved context is missing, irrelevant or misleading.
 
-**The key takeaway:** An LLM is a powerful language-generation component, not an infallible source of truth. Strong applications combine a suitable model with trustworthy data, retrieval where needed, validation, evaluation, security, and human judgment.
+Ways to reduce them:
+
+1. Ground answers in trusted sources (RAG).
+2. Require citations and check them.
+3. Use tools — calculators, SQL, code execution — for exact work.
+4. Validate structured output against schemas and business rules.
+5. Instruct the model to say when evidence is insufficient, and reward that behavior in evaluation.
+6. Keep a human in the loop for high-stakes decisions.
+7. Measure hallucination rates with an evaluation set.
+
+No technique eliminates hallucinations completely.
+
+## 14. LLMs vs. traditional ML
+
+| | Traditional ML | LLMs |
+|---|---|---|
+| Typical input | Structured/tabular features | Unstructured text, code, images |
+| Typical output | A label, score or number | Generated text |
+| Training | Task-specific, from your labeled data | Pre-trained generally, then adapted |
+| Evaluation | Accuracy, precision, recall, RMSE | Rubrics, human review, task-specific tests |
+
+LLMs are not automatically the right choice. For tabular prediction (churn, fraud scores, demand forecasting), gradient-boosted trees are often more accurate, cheaper, faster and easier to explain.
+
+## 15. Model types
+
+| Type | Description | Typical use |
+|---|---|---|
+| Foundation model | Broadly pre-trained, adaptable to many tasks. | Base for most applications. |
+| Decoder-only (GPT-style) | Autoregressive generation. | Chat, code, general generation. |
+| Encoder-only (BERT-style) | Bidirectional understanding; no free-form generation. | Classification, embeddings, search. |
+| Encoder-decoder (T5-style) | Encodes input, then generates output. | Translation, summarization. |
+| Small language model (SLM) | Fewer parameters; cheaper, can run on-device. | Narrow tasks, edge deployment. |
+| Multimodal | Handles more than one modality (text, images, audio). | Document understanding, vision Q&A. |
+| Mixture of experts (MoE) | Routes each token through a subset of "expert" layers, so only part of the model is active per token. | Large-capacity models with lower per-token compute. |
+| Open-weight | Weights downloadable under a license. | Self-hosting, fine-tuning. |
+
+"Open-weight" doesn't necessarily mean open training data, open code or unrestricted commercial use — read the license.
+
+## 16. Building LLM applications
+
+### Common business uses
+
+- **Text-to-SQL:** "Show monthly transaction volume for 2026." Always review generated SQL for joins, filters, date logic, permissions and metric definitions; run it with read-only credentials.
+- **Feedback analysis:** categorize comments, extract products and issues, summarize themes. Validate against a human-labeled sample.
+- **Document extraction:** pull fields (invoice number, date, amount, currency) into JSON. Valid JSON can still contain wrong values — check against business rules.
+- **Report drafting:** the LLM writes the narrative; **numbers come from SQL or a trusted data layer**, never from the model.
+- **Knowledge assistants:** RAG over policies, procedures, documentation and FAQs, with citations.
+
+### Reference architecture
+
+```
+User → App (authn/authz) → Prompt builder → [Retrieval, permission-filtered] → LLM
+     → Output validation & safety checks → Response with sources → Logging & monitoring
+```
+
+Production also needs: privacy controls, logging policy, rate limits, cost monitoring, timeouts and retries, fallbacks, and a path to escalate to a human.
+
+## 17. Evaluation
+
+Evaluate along several dimensions: **correctness, relevance, faithfulness** (does the answer stick to the provided sources?), **instruction following, safety, robustness, latency and cost**.
+
+Methods:
+
+- Human review against a written rubric.
+- A fixed test set with expected outputs, run on every change (regression testing).
+- Automated checks for structured fields.
+- Retrieval metrics such as Recall@K for RAG.
+- Pairwise comparison of models or prompts.
+- LLM-as-judge for scale — calibrated against human labels, since judges have their own biases.
+- Production monitoring.
+
+**Perplexity** measures how well a model predicts held-out text (lower = higher probability assigned to the actual tokens). It is useful for comparing language models but says little about usefulness, factuality, safety or chat quality.
+
+## 18. Risks and controls
+
+| Risk | Control |
+|---|---|
+| Hallucination | Grounding, citations, validation, human review. |
+| Sensitive data exposure | Approved tools only, data minimization, redaction, access controls. |
+| Prompt injection | Treat retrieved and user content as untrusted; least-privilege tools; confirm risky actions. |
+| Bias | Test across groups; review outputs; document limitations. |
+| Insecure generated code | Code review, static analysis, tests, dependency scanning. |
+| Cost overruns | Token budgets, caching, smaller models where sufficient, monitoring. |
+| Over-reliance | Training, clear UI signals, human accountability for decisions. |
+
+Never paste confidential customer data, credentials or regulated data into AI services your organization hasn't approved.
+
+## 19. The ecosystem
+
+| Category | Examples |
+|---|---|
+| Model providers (API) | OpenAI, Anthropic, Google |
+| Open-weight model families | Llama, Qwen, Mistral, Gemma, DeepSeek |
+| Model hub | Hugging Face |
+| Orchestration | LangChain, LlamaIndex |
+| Fine-tuning | Hugging Face `peft`/`trl`, Unsloth, Axolotl |
+| Inference engines | vLLM, llama.cpp, Ollama, TGI |
+| Evaluation | lm-evaluation-harness, RAGAS |
+
+This landscape changes quickly; check current documentation before choosing.
+
+## 20. Calling an LLM from code
+
+Both examples below run as written once the prerequisites are installed. Model names change frequently, so both read the model from an environment variable — check your provider's current model list. Never hard-code API keys; use environment variables or a secrets manager.
+
+### Hosted API (Anthropic Python SDK)
+
+```bash
+pip install anthropic
+export ANTHROPIC_API_KEY="..."          # from your provider console
+export LLM_MODEL="<a current model ID from the provider's docs>"
+```
+
+```python
+import os
+import anthropic
+
+client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
+
+message = client.messages.create(
+    model=os.environ["LLM_MODEL"],
+    max_tokens=500,
+    system="You are a patient SQL tutor. Keep answers under 150 words.",
+    messages=[{"role": "user", "content": "Explain a SQL INNER JOIN with a short example."}],
+)
+
+print(message.content[0].text)
+print("Input tokens:", message.usage.input_tokens, "| Output tokens:", message.usage.output_tokens)
+```
+
+The OpenAI SDK follows the same pattern (`client.chat.completions.create(...)`, reading `response.choices[0].message.content`).
+
+### Local open-weight model (Ollama)
+
+Runs entirely on your machine — no API key, no data leaves the laptop. Install Ollama from ollama.com, then:
+
+```bash
+ollama pull llama3.2        # a small open-weight model, pre-quantized to ~4-bit
+pip install ollama
+```
+
+```python
+import ollama
+
+response = ollama.chat(
+    model="llama3.2",
+    messages=[{"role": "user", "content": "Explain a SQL INNER JOIN with a short example."}],
+    options={"temperature": 0.2, "top_k": 40, "top_p": 0.9},
+)
+
+print(response["message"]["content"])
+```
+
+Try changing `temperature`, `top_k` and `top_p` and compare outputs (see [Section 10](#10-inference-and-decoding-temperature-top-k-top-p)).
+
+## 21. Learning roadmap
+
+| Stage | Focus | Mini-project |
+|---|---|---|
+| 1. Foundations | Tokens, attention, training stages, decoding | Run the sampling demo; tokenize text with a real tokenizer and compare languages |
+| 2. Prompting | Instructions, examples, structured output | Build a prompt that extracts invoice fields to JSON reliably |
+| 3. APIs | SDKs, streaming, token usage, error handling | A CLI tool that summarizes a file and reports token cost |
+| 4. Retrieval | Embeddings, chunking, vector search, citations | A RAG Q&A bot over a folder of internal docs |
+| 5. Fine-tuning | LoRA/QLoRA, dataset prep, overfitting | QLoRA fine-tune of a small open model for a classification task |
+| 6. Evaluation | Test sets, rubrics, LLM-as-judge | An eval harness comparing two prompts or a base vs. fine-tuned model |
+| 7. Deployment | Quantization, serving, monitoring, security | Serve a 4-bit model with Ollama or vLLM and measure latency/quality vs. 16-bit |
+
+## 22. Interview questions
+
+1. **What is an LLM?** A neural network trained on large text corpora to predict the next token; chat and other abilities emerge from repeating that step.
+2. **What is a token?** The unit a tokenizer splits text into — a word, sub-word, punctuation or symbol.
+3. **What are parameters?** The learned weights of the model; not a lookup table of facts.
+4. **What is a Transformer?** A neural architecture built on self-attention, feed-forward layers, residual connections and normalization.
+5. **What does self-attention do?** Lets each token weigh the other tokens to build a context-aware representation.
+6. **Why divide by √d_k?** To keep dot products from growing with dimension, which would saturate softmax and shrink gradients.
+7. **What is next-token prediction?** The pre-training objective of decoder-only models: maximize the probability of the actual next token.
+8. **Temperature vs. top-k vs. top-p?** Temperature reshapes the whole distribution; top-k keeps a fixed number of top tokens; top-p keeps the smallest set reaching a cumulative probability, so its size adapts to the model's confidence.
+9. **What is LoRA?** A PEFT method that freezes the base weights and learns a low-rank update `B·A` for selected matrices, training well under 1% of parameters.
+10. **What does QLoRA add?** A 4-bit quantized frozen base model with 16-bit LoRA adapters, cutting memory enough to fine-tune large models on one GPU.
+11. **What is quantization, and what does it cost?** Storing weights (and sometimes activations or KV cache) at lower precision to save memory and speed up inference, with some — usually small at 8-bit, larger at 4-bit and below — quality loss.
+12. **Why do LLMs often train for only about one epoch?** Corpora are so large that one pass already uses huge compute, and repeated passes add memorization risk with diminishing returns; high-quality subsets are upsampled instead.
+13. **RAG vs. fine-tuning?** RAG supplies knowledge at request time without changing weights (good for changing facts); fine-tuning changes weights (good for behavior and format).
+14. **What is a hallucination?** Plausible but unsupported or false output.
+15. **Do more parameters always mean better results?** No — data, training, alignment and inference setup matter as much.
+16. **When shouldn't you use an LLM?** Deterministic calculations, strict database operations, simple rules, and tabular prediction where traditional ML is cheaper and more reliable.
+
+## 23. Exercises
+
+1. Explain the difference between tokens and parameters in two sentences.
+2. Draw the generation loop from prompt to stop condition, including the KV cache.
+3. Describe Q, K and V in your own words.
+4. Modify the sampling demo to add min-p sampling and compare its output.
+5. With a fixed distribution, find a `top_k` and a `top_p` that keep the same tokens, then change the distribution and explain why they diverge.
+6. Compute the LoRA trainable-parameter count for a 4096 × 11008 matrix at ranks 8, 16 and 64.
+7. Estimate the GPU memory needed to serve a 13B model in BF16, INT8 and 4-bit.
+8. Extract fields from a sample invoice to JSON and list five validation checks.
+9. Build a 20-item test set for complaint classification and a rubric covering correctness, relevance and completeness.
+10. Design a safe text-to-SQL workflow, including permissions and review.
+
+## 24. Cheat sheet
+
+| Term | One-line definition |
+|---|---|
+| LLM | Neural network that predicts the next token, trained on large text corpora. |
+| Token | Unit of text the model reads and writes. |
+| Parameter | A learned weight in the model. |
+| Embedding | A vector representing a token (or text) numerically. |
+| Transformer | Architecture built on self-attention. |
+| Self-attention | Each token weighs other tokens to build context. |
+| KV cache | Stored keys/values that avoid recomputation during generation. |
+| Pre-training | Large-scale next-token training; often ~1 epoch over the corpus. |
+| SFT | Fine-tuning on curated prompt/response pairs. |
+| RLHF / DPO | Aligning a model to human preferences. |
+| LoRA | Train a small low-rank update; freeze the base model. |
+| QLoRA | LoRA on top of a 4-bit quantized base model. |
+| Quantization | Lower-precision weights/activations/KV cache; saves memory, costs some quality. |
+| Prompting | Instructions at request time; no weight changes. |
+| RAG | Retrieve documents and add them to the prompt. |
+| Inference | Running a trained model. |
+| Context window | Max tokens per request, including output. |
+| Temperature | Sharpens (<1) or flattens (>1) the token distribution. |
+| Top-k | Sample from the k most likely tokens. |
+| Top-p | Sample from the smallest set reaching cumulative probability p. |
+| Hallucination | Plausible but unsupported output. |
+| Evaluation | Measuring correctness, faithfulness, safety, latency and cost. |
+
+**Key takeaway:** an LLM is a powerful language-generation component, not a source of truth. Reliable systems pair it with trusted data, validation, evaluation, security controls and human judgment.
